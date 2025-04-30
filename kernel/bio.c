@@ -23,44 +23,46 @@
 #include "fs.h"
 #include "buf.h"
  
-#define MAPNUM 11
+#define MAPNUM 31
 
 struct {
   struct spinlock lock;
-  struct buf buf[NBUF];
+  struct buf buf[MAPNUM];
 
   // Linked list of all buffers, through prev/next.
   // Sorted by how recently the buffer was used.
   // head.next is most recent, head.prev is least.
-  struct buf head;
-} bcache[MAPNUM];
+} bcache;
 
 void
 binit(void)
 {
-  struct buf *b;
+  // struct buf *b;
 
-  for(int i = 0; i < MAPNUM; i++){
-    initlock(&bcache[i].lock, "bcache");
-  }
+  // for(int i = 0; i < MAPNUM; i++){
+    initlock(&bcache.lock, "bcache");
+  // }
   
 
   // Create linked list of buffers
-  for (int i = 0; i < MAPNUM; i++) {
-    bcache[i].head.prev = &bcache[i].head;
-    bcache[i].head.next = &bcache[i].head;
-  }
+  // for (int i = 0; i < MAPNUM; i++) {
+  //   bcache[i].head.prev = &bcache[i].head;
+  //   bcache[i].head.next = &bcache[i].head;
+  // }
 
-  for (int i = 0; i < MAPNUM; i++) {
-    for(b = bcache[i].buf; b < bcache[i].buf+NBUF; b++){
-    b->next = bcache[i].head.next;
-    b->prev = &bcache[i].head;
-    initsleeplock(&b->lock, "buffer");
-    bcache[i].head.next->prev = b;
-    bcache[i].head.next = b;
-  }
-  }
+  // for (int i = 0; i < MAPNUM; i++) {
+  //   for(b = bcache[i].buf; b < bcache[i].buf+NBUF; b++){
+  //   b->next = bcache[i].head.next;
+  //   b->prev = &bcache[i].head;
+  //   initsleeplock(&b->lock, "buffer");
+  //   bcache[i].head.next->prev = b;
+  //   bcache[i].head.next = b;
+  // }
+  // }
   
+  for (int i = 0; i < MAPNUM; i++) {
+    initsleeplock(&bcache.buf[i].lock, "buffer");
+  }
 }
 
 // Look through buffer cache for block on device dev.
@@ -71,31 +73,37 @@ bget(uint dev, uint blockno)
 {
   struct buf *b;
 
-  int i = ((dev << 16) | blockno) % MAPNUM;
+  // int i = ((dev << 16) | blockno) % MAPNUM;
 
-  acquire(&bcache[i].lock);
+
 
 
 
   // Is the block already cached?
-  for(b = bcache[i].head.next; b != &bcache[i].head; b = b->next){
+  for(int i = 0; i < MAPNUM; i++){
+    b = &bcache.buf[i];
     if(b->dev == dev && b->blockno == blockno){
+      
       b->refcnt++;
-      release(&bcache[i].lock);
+      // release(&bcache[i].lock);
       acquiresleep(&b->lock);
       return b;
     }
   }
 
+  acquire(&bcache.lock);
+
   // Not cached.
   // Recycle the least recently used (LRU) unused buffer.
-  for(b = bcache[i].head.prev; b != &bcache[i].head; b = b->prev){
+  for(int i = 0; i < MAPNUM; i++){
+    b = &bcache.buf[i];
     if(b->refcnt == 0) {
+      
       b->dev = dev;
       b->blockno = blockno;
       b->valid = 0;
       b->refcnt = 1;
-      release(&bcache[i].lock);
+      release(&bcache.lock);
       acquiresleep(&b->lock);
       return b;
     }
@@ -133,42 +141,48 @@ bwrite(struct buf *b)
 void
 brelse(struct buf *b)
 {
+  // acquire(&bcache.lock);
   if(!holdingsleep(&b->lock))
     panic("brelse");
 
-  int i = ((b->dev << 16) | b->blockno) % MAPNUM;
+  // int i = ((b->dev << 16) | b->blockno) % MAPNUM;
+  
+  b->refcnt--;
 
   releasesleep(&b->lock);
 
-  acquire(&bcache[i].lock);
-  b->refcnt--;
+  
   if (b->refcnt == 0) {
     // no one is waiting for it.
-    b->next->prev = b->prev;
-    b->prev->next = b->next;
-    b->next = bcache[i].head.next;
-    b->prev = &bcache[i].head;
-    bcache[i].head.next->prev = b;
-    bcache[i].head.next = b;
+    // b->next->prev = b->prev;
+    // b->prev->next = b->next; 
+    // b->next = bcache[i].head.next;
+    // b->prev = &bcache[i].head;
+    // bcache[i].head.next->prev = b;
+    // bcache[i].head.next = b;
   }
   
-  release(&bcache[i].lock);
+  // release(&bcache.lock);
 }
 
 void
 bpin(struct buf *b) {
-  int i = ((b->dev << 16) | b->blockno) % MAPNUM;
-  acquire(&bcache[i].lock);
+  if(!holdingsleep(&b->lock))
+    panic("bpin");
+  // int i = ((b->dev << 16) | b->blockno) % MAPNUM;
+  // acquire(&bcache[i].lock);
   b->refcnt++;
-  release(&bcache[i].lock);
+  // release(&bcache[i].lock);
 }
 
 void
 bunpin(struct buf *b) {
-  int i = ((b->dev << 16) | b->blockno) % MAPNUM;
-  acquire(&bcache[i].lock);
+  if(!holdingsleep(&b->lock))
+    panic("bunpin");
+  // int i = ((b->dev << 16) | b->blockno) % MAPNUM;
+  // acquire(&bcache[i].lock);
   b->refcnt--;
-  release(&bcache[i].lock);
+  // release(&bcache[i].lock);
 }
 
 
