@@ -503,3 +503,11 @@ sys_pipe(void)
   }
   return 0;
 }
+
+uint64
+sys_symlink(void)
+{ 
+  // uint64 target, path;
+
+  return 0;
+}
